@@ -422,7 +422,7 @@ export default function LogFoodPage() {
                 <div className="grid grid-cols-4 gap-1">
                   {(["calories","protein","carbs","fat"] as const).map(k => (
                     <div key={k}>
-                      <label className="text-xs block" style={{ color: "var(--text-muted)" }} className="capitalize">{k}</label>
+                      <label className="text-xs block capitalize" style={{ color: "var(--text-muted)" }}>{k}</label>
                       <input type="number" value={manualEstimate[k]}
                         onChange={e => setManualEstimate(prev => prev ? { ...prev, [k]: +e.target.value } : prev)}
                         className="text-xs text-center" />
