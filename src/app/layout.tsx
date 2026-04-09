@@ -4,8 +4,11 @@ import Nav from "@/components/layout/Nav";
 import { SessionProvider } from "@/components/SessionProvider";
 
 export const metadata: Metadata = {
-  title: "VitalTrack — Health & Fitness",
-  description: "Your personal health and fitness companion",
+  title: "VitalTrack",
+  description: "Your personal fitness tracker",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
