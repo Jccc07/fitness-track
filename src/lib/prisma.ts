@@ -1,29 +1,8 @@
-// src/lib/prisma.ts
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from '@prisma/client'
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
 
-function createPrismaClient() {
-  const url = process.env.TURSO_DATABASE_URL;
-  const authToken = process.env.TURSO_AUTH_TOKEN;
+export const prisma =
+  globalForPrisma.prisma || new PrismaClient()
 
-  if (!url) throw new Error("TURSO_DATABASE_URL is not set");
-
-  // Dynamically require to avoid module-level instantiation
-  const { PrismaLibSql } = require("@prisma/adapter-libsql");
-  const adapter = new PrismaLibSql({ url, authToken });
-  return new PrismaClient({ adapter } as any);
-}
-
-export function getPrisma(): PrismaClient {
-  if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = createPrismaClient();
-  }
-  return globalForPrisma.prisma;
-}
-
-export const prisma = new Proxy({} as PrismaClient, {
-  get(_, prop) {
-    return getPrisma()[prop as keyof PrismaClient];
-  },
-});
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
