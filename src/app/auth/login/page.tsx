@@ -16,14 +16,20 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    
     const res = await signIn("credentials", {
-      email, password, redirect: false,
+      email,
+      password,
+      redirect: false,
     });
+
     setLoading(false);
+
     if (res?.error) {
       setError("Invalid email or password");
-    } else {
+    } else if (res?.ok) {
       router.push("/");
+      router.refresh(); // forces Next.js to re-evaluate middleware/session
     }
   }
 
