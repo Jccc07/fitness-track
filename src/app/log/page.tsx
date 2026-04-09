@@ -1,10 +1,9 @@
 "use client";
 // src/app/log/page.tsx
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
-import { PenLine, Package, Camera, Trash2, Plus, Loader2, Sparkles, ShoppingCart, Check, X } from "lucide-react";
+import { PenLine, Package, Camera, Trash2, Plus, Loader2, Sparkles, ShoppingCart, Check, X, ChevronDown, ChevronUp } from "lucide-react";
 import type { MealLog } from "@/types";
-import clsx from "clsx";
 
 type EntryMode = "manual" | "product" | "image";
 type MealType = "breakfast" | "lunch" | "dinner" | "snack";
@@ -41,14 +40,108 @@ interface ImageFoodItem {
   fat: number;
 }
 
+function MealDetailModal({ meal, onClose }: { meal: MealLog; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl p-5 space-y-4"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-base leading-snug">{meal.foodName}</h2>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs px-2 py-0.5 rounded-full capitalize"
+                style={{ background: "var(--accent-glow)", color: "var(--accent)", border: "1px solid var(--accent-dim)" }}>
+                {meal.mealType}
+              </span>
+              <span className="text-xs px-2 py-0.5 rounded-full capitalize"
+                style={{ background: "var(--bg-card2)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                {meal.entryType}
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ color: "var(--text-muted)" }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Calorie highlight */}
+        <div className="rounded-xl p-4 text-center"
+          style={{ background: "var(--accent-glow)", border: "1px solid var(--accent-dim)" }}>
+          <div className="text-3xl font-bold" style={{ color: "var(--accent)", fontFamily: "Syne, sans-serif" }}>
+            {meal.calories}
+          </div>
+          <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>kilocalories</div>
+        </div>
+
+        {/* Macros */}
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "Protein", value: meal.protein, color: "#60a5fa" },
+            { label: "Carbs",   value: meal.carbs,   color: "#f59e0b" },
+            { label: "Fat",     value: meal.fat,      color: "#f472b6" },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="rounded-xl p-3 text-center"
+              style={{ background: "var(--bg-card2)", border: "1px solid var(--border)" }}>
+              <div className="text-lg font-bold" style={{ color }}>{value ?? 0}g</div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Extra details */}
+        <div className="space-y-2 text-sm" style={{ color: "var(--text-muted)" }}>
+          {meal.brandName && (
+            <div className="flex justify-between">
+              <span>Brand</span>
+              <span className="font-medium" style={{ color: "var(--text)" }}>{meal.brandName}</span>
+            </div>
+          )}
+          {meal.ingredients && (
+            <div className="flex justify-between">
+              <span>Ingredients</span>
+              <span className="font-medium text-right max-w-[60%]" style={{ color: "var(--text)" }}>{meal.ingredients}</span>
+            </div>
+          )}
+          {meal.notes && (
+            <div className="flex justify-between">
+              <span>Notes</span>
+              <span className="font-medium text-right max-w-[60%]" style={{ color: "var(--text)" }}>{meal.notes}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span>Date</span>
+            <span className="font-medium" style={{ color: "var(--text)" }}>{meal.date}</span>
+          </div>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold"
+          style={{ background: "var(--bg-card2)", color: "var(--text)", border: "1px solid var(--border)" }}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function LogFoodPage() {
   const [mode, setMode] = useState<EntryMode>("manual");
   const [mealType, setMealType] = useState<MealType>("lunch");
   const [meals, setMeals] = useState<MealLog[]>([]);
   const [saving, setSaving] = useState(false);
   const [date] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [selectedMeal, setSelectedMeal] = useState<MealLog | null>(null);
 
-  // Cart — items staged before logging as one meal
+  // Cart
   const [cart, setCart] = useState<CartItem[]>([]);
 
   // Manual form
@@ -66,7 +159,6 @@ export default function LogFoodPage() {
   const [servingSize, setServingSize] = useState(100);
 
   // Image
-  const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageMime, setImageMime] = useState("image/jpeg");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -76,13 +168,15 @@ export default function LogFoodPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Collapsed meal groups
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     fetch(`/api/meals?date=${date}`).then(r => r.json()).then(data => {
       if (Array.isArray(data)) setMeals(data);
     });
   }, [date]);
 
-  // Product search debounce
   useEffect(() => {
     if (searchQuery.length < 2) { setSearchResults([]); return; }
     const t = setTimeout(async () => {
@@ -95,7 +189,6 @@ export default function LogFoodPage() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // ─── Estimate nutrition via Claude ──────────────────────────────────────
   const estimateManual = async () => {
     if (!manualFood.trim()) return;
     setEstimating(true);
@@ -126,21 +219,15 @@ export default function LogFoodPage() {
   const addManualToCart = () => {
     if (!manualEstimate) return;
     setCart(c => [...c, manualEstimate]);
-    setManualFood("");
-    setManualIngredients("");
-    setManualPortion("");
-    setManualEstimate(null);
+    setManualFood(""); setManualIngredients(""); setManualPortion(""); setManualEstimate(null);
   };
 
-  // ─── Product ─────────────────────────────────────────────────────────────
   const addProductToCart = () => {
     if (!selectedProduct) return;
     const ratio = servingSize / 100;
     setCart(c => [...c, {
       id: Date.now().toString(),
-      foodName: selectedProduct.brand
-        ? `${selectedProduct.name} (${selectedProduct.brand})`
-        : selectedProduct.name,
+      foodName: selectedProduct.brand ? `${selectedProduct.name} (${selectedProduct.brand})` : selectedProduct.name,
       portion: `${servingSize}g`,
       calories: Math.round(selectedProduct.calories * ratio),
       protein: Math.round(selectedProduct.protein * ratio),
@@ -148,24 +235,18 @@ export default function LogFoodPage() {
       fat: Math.round(selectedProduct.fat * ratio),
       source: "product",
     }]);
-    setSelectedProduct(null);
-    setSearchQuery("");
-    setServingSize(100);
+    setSelectedProduct(null); setSearchQuery(""); setServingSize(100);
   };
 
-  // ─── Image ────────────────────────────────────────────────────────────────
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImageFile(file);
-    setImageItems([]);
-    setSelectedImageItems(new Set());
+    setImageItems([]); setSelectedImageItems(new Set());
     setImageMime(file.type || "image/jpeg");
     const reader = new FileReader();
     reader.onload = ev => {
       const result = ev.target?.result as string;
       setImagePreview(result);
-      // Extract base64 data (remove data:image/...;base64, prefix)
       setImageBase64(result.split(",")[1]);
     };
     reader.readAsDataURL(file);
@@ -173,17 +254,12 @@ export default function LogFoodPage() {
 
   const analyzeImage = async () => {
     if (!imageBase64 && !imageDescription) return;
-    setAnalyzing(true);
-    setImageItems([]);
+    setAnalyzing(true); setImageItems([]);
     try {
       const res = await fetch("/api/meals/analyze-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64,
-          mimeType: imageMime,
-          description: imageDescription,
-        }),
+        body: JSON.stringify({ imageBase64, mimeType: imageMime, description: imageDescription }),
       });
       const data = await res.json();
       if (data.items && Array.isArray(data.items)) {
@@ -216,15 +292,10 @@ export default function LogFoodPage() {
         source: "image" as const,
       }));
     setCart(c => [...c, ...toAdd]);
-    setImageItems([]);
-    setImagePreview(null);
-    setImageFile(null);
-    setImageBase64(null);
-    setImageDescription("");
-    setSelectedImageItems(new Set());
+    setImageItems([]); setImagePreview(null); setImageBase64(null);
+    setImageDescription(""); setSelectedImageItems(new Set());
   };
 
-  // ─── Remove from cart ────────────────────────────────────────────────────
   const removeFromCart = (id: string) => setCart(c => c.filter(x => x.id !== id));
 
   const cartTotals = {
@@ -234,7 +305,6 @@ export default function LogFoodPage() {
     fat:      cart.reduce((s, i) => s + i.fat, 0),
   };
 
-  // ─── Log entire meal (all cart items) ───────────────────────────────────
   const logMeal = async () => {
     if (cart.length === 0) return;
     setSaving(true);
@@ -244,14 +314,8 @@ export default function LogFoodPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mealType,
-          entryType: item.source,
-          foodName: item.foodName,
-          calories: item.calories,
-          protein: item.protein,
-          carbs: item.carbs,
-          fat: item.fat,
-          date,
+          mealType, entryType: item.source, foodName: item.foodName,
+          calories: item.calories, protein: item.protein, carbs: item.carbs, fat: item.fat, date,
         }),
       });
       const meal = await res.json();
@@ -265,11 +329,18 @@ export default function LogFoodPage() {
   const deleteMeal = async (id: string) => {
     await fetch(`/api/meals/${id}`, { method: "DELETE" });
     setMeals(m => m.filter(x => x.id !== id));
+    if (selectedMeal?.id === id) setSelectedMeal(null);
+  };
+
+  const toggleGroup = (type: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      next.has(type) ? next.delete(type) : next.add(type);
+      return next;
+    });
   };
 
   const totalCalories = meals.reduce((s, m) => s + m.calories, 0);
-
-  // Group logged meals by type
   const mealsByType = MEAL_TYPES.map(type => ({
     type,
     items: meals.filter(m => m.mealType === type),
@@ -277,14 +348,17 @@ export default function LogFoodPage() {
   })).filter(g => g.items.length > 0);
 
   const tabs = [
-    { id: "manual",  label: "Manual",  icon: PenLine  },
-    { id: "product", label: "Product", icon: Package  },
-    { id: "image",   label: "Image AI",icon: Camera   },
+    { id: "manual",  label: "Manual",   icon: PenLine },
+    { id: "product", label: "Product",  icon: Package },
+    { id: "image",   label: "Image AI", icon: Camera  },
   ] as const;
 
   return (
     <div className="space-y-5 fade-up">
-      {/* Header */}
+      {selectedMeal && (
+        <MealDetailModal meal={selectedMeal} onClose={() => setSelectedMeal(null)} />
+      )}
+
       <div>
         <h1 className="text-xl font-bold">Log Food</h1>
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>{format(new Date(), "EEEE, MMMM d")}</p>
@@ -303,7 +377,7 @@ export default function LogFoodPage() {
         ))}
       </div>
 
-      {/* Cart summary (shows when items are staged) */}
+      {/* Cart */}
       {cart.length > 0 && (
         <div className="card" style={{ border: "1px solid var(--accent-dim)", background: "var(--accent-glow)" }}>
           <div className="flex items-center justify-between mb-2">
@@ -311,9 +385,7 @@ export default function LogFoodPage() {
               <ShoppingCart size={16} />
               Staged for {mealType} · {cart.length} item{cart.length > 1 ? "s" : ""}
             </div>
-            <div className="text-sm font-bold" style={{ color: "var(--accent)" }}>
-              {cartTotals.calories} kcal
-            </div>
+            <div className="text-sm font-bold" style={{ color: "var(--accent)" }}>{cartTotals.calories} kcal</div>
           </div>
           <div className="space-y-1 mb-3">
             {cart.map(item => (
@@ -326,9 +398,7 @@ export default function LogFoodPage() {
                 </div>
                 <div className="flex items-center gap-2 ml-2">
                   <span style={{ color: "var(--accent)" }}>{item.calories} kcal</span>
-                  <button onClick={() => removeFromCart(item.id)} style={{ color: "var(--danger)" }}>
-                    <X size={14} />
-                  </button>
+                  <button onClick={() => removeFromCart(item.id)} style={{ color: "var(--danger)" }}><X size={14} /></button>
                 </div>
               </div>
             ))}
@@ -363,40 +433,32 @@ export default function LogFoodPage() {
           ))}
         </div>
 
-        {/* ── MANUAL ── */}
+        {/* MANUAL */}
         {mode === "manual" && (
           <div className="space-y-3">
             <div>
               <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>
                 Food name <span style={{ color: "var(--text-dim)" }}>(Filipino or English)</span>
               </label>
-              <input
-                placeholder="e.g. Chicken Adobo, Adobong Manok, Jollibee Chickenjoy..."
+              <input placeholder="e.g. Chicken Adobo, Adobong Manok, Jollibee Chickenjoy..."
                 value={manualFood}
                 onChange={e => { setManualFood(e.target.value); setManualEstimate(null); }}
-                onKeyDown={e => e.key === "Enter" && estimateManual()}
-              />
+                onKeyDown={e => e.key === "Enter" && estimateManual()} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>Portion size (optional)</label>
-                <input placeholder="e.g. 1 cup, 1 piece, 200g"
-                  value={manualPortion} onChange={e => setManualPortion(e.target.value)} />
+                <input placeholder="e.g. 1 cup, 1 piece, 200g" value={manualPortion} onChange={e => setManualPortion(e.target.value)} />
               </div>
               <div>
                 <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>Ingredients (optional)</label>
-                <input placeholder="e.g. with potatoes and carrots"
-                  value={manualIngredients} onChange={e => setManualIngredients(e.target.value)} />
+                <input placeholder="e.g. with potatoes and carrots" value={manualIngredients} onChange={e => setManualIngredients(e.target.value)} />
               </div>
             </div>
-
             <button className="btn-ghost w-full flex items-center justify-center gap-2"
               onClick={estimateManual} disabled={estimating || !manualFood.trim()}>
-              {estimating
-                ? <><Loader2 size={14} className="animate-spin" />Estimating...</>
-                : <><Sparkles size={14} />Estimate Nutrition with AI</>}
+              {estimating ? <><Loader2 size={14} className="animate-spin" />Estimating...</> : <><Sparkles size={14} />Estimate Nutrition with AI</>}
             </button>
-
             {manualEstimate && (
               <div className="rounded-xl p-3 space-y-2" style={{ background: "var(--bg-card2)", border: "1px solid var(--accent-dim)" }}>
                 <div className="flex items-center justify-between">
@@ -404,9 +466,7 @@ export default function LogFoodPage() {
                     <div className="font-medium text-sm">{manualEstimate.foodName}</div>
                     <div className="text-xs" style={{ color: "var(--text-muted)" }}>{manualEstimate.portion}</div>
                   </div>
-                  <div className="text-lg font-bold" style={{ color: "var(--accent)" }}>
-                    {manualEstimate.calories} kcal
-                  </div>
+                  <div className="text-lg font-bold" style={{ color: "var(--accent)" }}>{manualEstimate.calories} kcal</div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-xs text-center">
                   {[["Protein", manualEstimate.protein, "g"], ["Carbs", manualEstimate.carbs, "g"], ["Fat", manualEstimate.fat, "g"]].map(([k, v, u]) => (
@@ -416,11 +476,9 @@ export default function LogFoodPage() {
                     </div>
                   ))}
                 </div>
-                <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-                  AI estimate · tap fields to adjust
-                </p>
+                <p className="text-xs" style={{ color: "var(--text-dim)" }}>AI estimate · tap fields to adjust</p>
                 <div className="grid grid-cols-4 gap-1">
-                  {(["calories","protein","carbs","fat"] as const).map(k => (
+                  {(["calories", "protein", "carbs", "fat"] as const).map(k => (
                     <div key={k}>
                       <label className="text-xs block capitalize" style={{ color: "var(--text-muted)" }}>{k}</label>
                       <input type="number" value={manualEstimate[k]}
@@ -437,11 +495,11 @@ export default function LogFoodPage() {
           </div>
         )}
 
-        {/* ── PRODUCT ── */}
+        {/* PRODUCT */}
         {mode === "product" && (
           <div className="space-y-3">
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Search Open Food Facts or describe a local PH product (Jollibee, McDonald's PH, KFC, etc.)
+              Search Open Food Facts or describe a local PH product
             </p>
             <div className="relative">
               <input placeholder="Search brand, product, or fast food item..."
@@ -453,7 +511,6 @@ export default function LogFoodPage() {
                 </div>
               )}
             </div>
-
             {searchResults.length > 0 && !selectedProduct && (
               <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg-card2)" }}>
                 {searchResults.map(p => (
@@ -469,22 +526,18 @@ export default function LogFoodPage() {
                 ))}
               </div>
             )}
-
             {searchResults.length === 0 && searchQuery.length > 2 && !searching && !selectedProduct && (
               <div className="text-xs rounded-xl p-3" style={{ background: "var(--bg-card2)", color: "var(--text-muted)" }}>
-                Not found in Open Food Facts — try the Manual tab for local PH items and AI will estimate calories.
+                Not found — try the Manual tab for local PH items.
               </div>
             )}
-
             {selectedProduct && (
               <div className="space-y-3">
                 <div className="rounded-xl p-3" style={{ background: "var(--bg-card2)", border: "1px solid var(--accent-dim)" }}>
                   <div className="font-medium text-sm" style={{ color: "var(--accent)" }}>{selectedProduct.name}</div>
-                  {selectedProduct.brand && (
-                    <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>{selectedProduct.brand}</div>
-                  )}
+                  {selectedProduct.brand && <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>{selectedProduct.brand}</div>}
                   <div className="grid grid-cols-4 gap-2 text-xs text-center">
-                    {(["calories","protein","carbs","fat"] as const).map(k => (
+                    {(["calories", "protein", "carbs", "fat"] as const).map(k => (
                       <div key={k} className="py-1.5 rounded-lg" style={{ background: "var(--bg-card)" }}>
                         <div className="font-semibold">{Math.round((selectedProduct[k] ?? 0) * servingSize / 100)}</div>
                         <div style={{ color: "var(--text-muted)" }} className="capitalize">{k === "calories" ? "kcal" : k + "g"}</div>
@@ -494,8 +547,7 @@ export default function LogFoodPage() {
                 </div>
                 <div>
                   <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>Serving size (g)</label>
-                  <input type="number" value={servingSize} min={1}
-                    onChange={e => setServingSize(+e.target.value)} />
+                  <input type="number" value={servingSize} min={1} onChange={e => setServingSize(+e.target.value)} />
                 </div>
                 <button className="btn-primary w-full flex items-center justify-center gap-2" onClick={addProductToCart}>
                   <Plus size={14} /> Add to Meal
@@ -505,39 +557,30 @@ export default function LogFoodPage() {
           </div>
         )}
 
-        {/* ── IMAGE AI ── */}
+        {/* IMAGE AI */}
         {mode === "image" && (
           <div className="space-y-3">
-            <div
-              onClick={() => fileRef.current?.click()}
+            <div onClick={() => fileRef.current?.click()}
               className="border-2 border-dashed rounded-xl flex flex-col items-center justify-center py-8 cursor-pointer transition-colors"
               style={{ borderColor: imagePreview ? "var(--accent-dim)" : "var(--border)" }}>
-              {imagePreview ? (
-                <img src={imagePreview} alt="food" className="max-h-48 rounded-lg object-contain" />
-              ) : (
-                <>
+              {imagePreview
+                ? <img src={imagePreview} alt="food" className="max-h-48 rounded-lg object-contain" />
+                : <>
                   <Camera size={28} style={{ color: "var(--text-dim)" }} />
                   <p className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>Tap to upload food photo</p>
                   <p className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>Recognizes multiple items at once</p>
-                </>
-              )}
+                </>}
             </div>
             <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageChange} />
-
             <div>
-              <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>Describe (optional — helps AI)</label>
+              <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>Describe (optional)</label>
               <input placeholder="e.g. lunch with rice, adobo, and iced tea"
                 value={imageDescription} onChange={e => setImageDescription(e.target.value)} />
             </div>
-
             <button className="btn-ghost w-full flex items-center justify-center gap-2"
               onClick={analyzeImage} disabled={analyzing || (!imageBase64 && !imageDescription)}>
-              {analyzing
-                ? <><Loader2 size={14} className="animate-spin" />Analyzing all food items...</>
-                : <><Sparkles size={14} />Analyze with AI Vision</>}
+              {analyzing ? <><Loader2 size={14} className="animate-spin" />Analyzing...</> : <><Sparkles size={14} />Analyze with AI Vision</>}
             </button>
-
-            {/* Multi-item results */}
             {imageItems.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs" style={{ color: "var(--text-muted)" }}>
@@ -549,8 +592,7 @@ export default function LogFoodPage() {
                 {imageItems.map((item, idx) => {
                   const selected = selectedImageItems.has(idx);
                   return (
-                    <div key={idx}
-                      onClick={() => toggleImageItem(idx)}
+                    <div key={idx} onClick={() => toggleImageItem(idx)}
                       className="flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all"
                       style={{
                         background: selected ? "var(--accent-glow)" : "var(--bg-card2)",
@@ -566,9 +608,7 @@ export default function LogFoodPage() {
                           {item.portion} · P:{item.protein}g C:{item.carbs}g F:{item.fat}g
                         </div>
                       </div>
-                      <div className="font-bold text-sm" style={{ color: "var(--accent)" }}>
-                        {item.calories} kcal
-                      </div>
+                      <div className="font-bold text-sm" style={{ color: "var(--accent)" }}>{item.calories} kcal</div>
                     </div>
                   );
                 })}
@@ -582,13 +622,11 @@ export default function LogFoodPage() {
         )}
       </div>
 
-      {/* Today's log — grouped by meal type */}
+      {/* Today's log */}
       <div className="card">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-sm">Today's Log</h3>
-          <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>
-            {totalCalories} kcal total
-          </span>
+          <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>{totalCalories} kcal total</span>
         </div>
         {meals.length === 0 ? (
           <p className="text-xs text-center py-4" style={{ color: "var(--text-dim)" }}>No meals logged today</p>
@@ -596,27 +634,44 @@ export default function LogFoodPage() {
           <div className="space-y-4">
             {mealsByType.map(group => (
               <div key={group.type}>
-                <div className="flex items-center justify-between mb-1.5">
+                {/* Group header — clickable to collapse */}
+                <button
+                  onClick={() => toggleGroup(group.type)}
+                  className="w-full flex items-center justify-between mb-1.5"
+                >
                   <span className="text-xs font-semibold capitalize px-2 py-0.5 rounded-full"
                     style={{ background: "var(--bg-card2)", color: "var(--accent)", border: "1px solid var(--accent-dim)" }}>
                     {group.type}
                   </span>
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>{group.total} kcal</span>
-                </div>
-                {group.items.map(m => (
-                  <div key={m.id} className="flex items-center justify-between text-sm py-1.5 pl-2 border-b group"
-                    style={{ borderColor: "var(--border)" }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>{group.total} kcal</span>
+                    {collapsedGroups.has(group.type)
+                      ? <ChevronDown size={13} style={{ color: "var(--text-muted)" }} />
+                      : <ChevronUp size={13} style={{ color: "var(--text-muted)" }} />}
+                  </div>
+                </button>
+
+                {/* Meal rows */}
+                {!collapsedGroups.has(group.type) && group.items.map(m => (
+                  <div
+                    key={m.id}
+                    className="flex items-center justify-between text-sm py-2 pl-2 border-b group cursor-pointer rounded-lg transition-colors hover:bg-white/5"
+                    style={{ borderColor: "var(--border)" }}
+                    onClick={() => setSelectedMeal(m)}
+                  >
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{m.foodName}</div>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>
                         {m.protein ? `P:${m.protein}g` : ""}
                         {m.carbs ? ` C:${m.carbs}g` : ""}
                         {m.fat ? ` F:${m.fat}g` : ""}
+                        {!m.protein && !m.carbs && !m.fat ? "Tap for details" : ""}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <span style={{ color: "var(--accent)" }}>{m.calories} kcal</span>
-                      <button onClick={() => deleteMeal(m.id)}
+                      <button
+                        onClick={e => { e.stopPropagation(); deleteMeal(m.id); }}
                         className="opacity-0 group-hover:opacity-100 transition-opacity"
                         style={{ color: "var(--danger)" }}>
                         <Trash2 size={14} />
