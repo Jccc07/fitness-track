@@ -5,44 +5,59 @@ generator client {
 }
 
 datasource db {
-  provider     = "sqlite"
-  url          = "file:./dev.db"
-  relationMode = "prisma"
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  profile      UserProfile?
+  weightLogs   WeightLog[]
+  meals        MealLog[]
+  activities   ActivityLog[]
 }
 
 model UserProfile {
-  id            String   @id @default("default")
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   age           Int
-  sex           String   // "male" | "female"
-  height        Float    // cm
-  weight        Float    // kg
-  activityLevel String   // "sedentary" | "moderate" | "active"
-  goal          String   // "maintain" | "deficit" | "bulk"
+  sex           String
+  height        Float
+  weight        Float
+  activityLevel String
+  goal          String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-
-  weightLogs WeightLog[]
 }
 
 model WeightLog {
-  id        String      @id @default(cuid())
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   weight    Float
-  date      DateTime    @default(now())
-  profileId String      @default("default")
-  profile   UserProfile @relation(fields: [profileId], references: [id])
+  date      DateTime @default(now())
 }
 
 model MealLog {
   id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   date         DateTime @default(now())
-  mealType     String   // "breakfast" | "lunch" | "dinner" | "snack"
-  entryType    String   // "manual" | "product" | "image"
+  mealType     String
+  entryType    String
   foodName     String
   ingredients  String?
   calories     Float
-  protein      Float?   // grams
-  carbs        Float?   // grams
-  fat          Float?   // grams
+  protein      Float?
+  carbs        Float?
+  fat          Float?
   brandName    String?
   productName  String?
   imageUrl     String?
@@ -52,15 +67,17 @@ model MealLog {
 }
 
 model ActivityLog {
-  id           String   @id @default(cuid())
-  date         DateTime @default(now())
-  entryType    String   // "manual" | "screenshot"
-  activityType String   // "walk" | "run" | "gym" | "cycle" | etc.
-  duration     Float?   // minutes
-  distance     Float?   // km
-  reps         Int?
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date           DateTime @default(now())
+  entryType      String
+  activityType   String
+  duration       Float?
+  distance       Float?
+  reps           Int?
   caloriesBurned Float
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

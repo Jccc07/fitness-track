@@ -2,8 +2,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { startOfDay, endOfDay } from "date-fns";
+import { requireUserId } from "@/lib/session";
 
 export async function GET(req: Request) {
+  const result = await requireUserId();
+  if (result instanceof NextResponse) return result;
+  const userId = result;
+
   try {
     const { searchParams } = new URL(req.url);
     const dateStr = searchParams.get("date");
@@ -11,10 +16,8 @@ export async function GET(req: Request) {
 
     const meals = await prisma.mealLog.findMany({
       where: {
-        date: {
-          gte: startOfDay(date),
-          lte: endOfDay(date),
-        },
+        userId,
+        date: { gte: startOfDay(date), lte: endOfDay(date) },
       },
       orderBy: { date: "asc" },
     });
@@ -25,13 +28,14 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const result = await requireUserId();
+  if (result instanceof NextResponse) return result;
+  const userId = result;
+
   try {
     const body = await req.json();
     const meal = await prisma.mealLog.create({
-      data: {
-        ...body,
-        date: body.date ? new Date(body.date) : new Date(),
-      },
+      data: { ...body, userId, date: body.date ? new Date(body.date) : new Date() },
     });
     return NextResponse.json(meal);
   } catch (e) {

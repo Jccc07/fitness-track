@@ -1,14 +1,9 @@
 "use client";
-// src/components/layout/Nav.tsx
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut, useSession } from "next-auth/react";
 import {
-  LayoutDashboard,
-  User,
-  Utensils,
-  Flame,
-  BarChart3,
-  Zap,
+  LayoutDashboard, User, Utensils, Flame, BarChart3, Zap, LogOut,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -22,6 +17,7 @@ const links = [
 
 export default function Nav() {
   const path = usePathname();
+  const { data: session } = useSession();
 
   return (
     <>
@@ -43,23 +39,30 @@ export default function Nav() {
           {links.map(({ href, icon: Icon, label }) => {
             const active = path === href || (href !== "/" && path.startsWith(href));
             return (
-              <Link
-                key={href}
-                href={href}
+              <Link key={href} href={href}
                 className={clsx(
                   "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium",
                   active ? "nav-active" : "hover:bg-white/5"
                 )}
-                style={{ color: active ? "var(--accent)" : "var(--text-muted)" }}
-              >
+                style={{ color: active ? "var(--accent)" : "var(--text-muted)" }}>
                 <Icon size={18} />
                 {label}
               </Link>
             );
           })}
         </nav>
-        <div className="p-4 border-t text-xs" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
-          VitalTrack v1.0
+        <div className="p-4 border-t space-y-3" style={{ borderColor: "var(--border)" }}>
+          {session?.user && (
+            <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+              {session.user.name || session.user.email}
+            </div>
+          )}
+          <button onClick={() => signOut({ callbackUrl: "/auth/login" })}
+            className="flex items-center gap-2 text-sm w-full px-3 py-2 rounded-xl hover:bg-white/5 transition-colors"
+            style={{ color: "var(--text-muted)" }}>
+            <LogOut size={16} />
+            Sign out
+          </button>
         </div>
       </aside>
 
@@ -69,12 +72,9 @@ export default function Nav() {
         {links.map(({ href, icon: Icon, label }) => {
           const active = path === href || (href !== "/" && path.startsWith(href));
           return (
-            <Link
-              key={href}
-              href={href}
+            <Link key={href} href={href}
               className="flex-1 flex flex-col items-center py-2 text-xs gap-1 transition-colors"
-              style={{ color: active ? "var(--accent)" : "var(--text-dim)" }}
-            >
+              style={{ color: active ? "var(--accent)" : "var(--text-dim)" }}>
               <Icon size={20} />
               <span className="truncate w-full text-center px-1">{label.split(" ")[0]}</span>
             </Link>
