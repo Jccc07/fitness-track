@@ -22,7 +22,7 @@ function ftInToCm(ft: number, inches: number): number {
   return Math.round((ft * 12 + inches) * 2.54);
 }
 
-// Custom stepper input
+// Custom stepper input — buttons + direct typing
 function StepInput({
   label, value, min, max, step = 1, unit,
   onChange,
@@ -30,23 +30,38 @@ function StepInput({
   label: string; value: number; min: number; max: number; step?: number; unit?: string;
   onChange: (v: number) => void;
 }) {
+  const handleTyped = (raw: string) => {
+    if (raw === '' || raw === '-') return;
+    const n = parseFloat(raw);
+    if (!isNaN(n)) onChange(Math.min(max, Math.max(min, +n.toFixed(2))));
+  };
+
   return (
     <div>
-      <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text-muted)" }}>{label}</label>
-      <div className="flex items-center gap-1 rounded-xl overflow-hidden"
+      {label && <label className="text-xs font-medium mb-1.5 block" style={{ color: "var(--text-muted)" }}>{label}</label>}
+      <div className="flex items-center rounded-xl overflow-hidden"
         style={{ border: "1px solid var(--border)", background: "var(--bg-card2)" }}>
         <button type="button"
-          className="w-10 h-10 flex items-center justify-center text-lg font-bold transition-colors hover:bg-white/5 flex-shrink-0"
+          className="w-10 h-11 flex items-center justify-center text-xl font-bold transition-colors hover:bg-white/5 flex-shrink-0"
           style={{ color: "var(--accent)" }}
           onClick={() => onChange(Math.max(min, +(value - step).toFixed(2)))}>
           −
         </button>
-        <div className="flex-1 text-center">
-          <span className="text-base font-semibold">{value}</span>
-          {unit && <span className="text-xs ml-1" style={{ color: "var(--text-muted)" }}>{unit}</span>}
+        <div className="flex-1 flex items-center justify-center gap-1">
+          <input
+            type="number"
+            value={value}
+            min={min}
+            max={max}
+            step={step}
+            onChange={e => handleTyped(e.target.value)}
+            className="w-16 text-center text-base font-semibold bg-transparent border-none outline-none p-0"
+            style={{ color: "var(--text)", appearance: "textfield" }}
+          />
+          {unit && <span className="text-xs" style={{ color: "var(--text-muted)" }}>{unit}</span>}
         </div>
         <button type="button"
-          className="w-10 h-10 flex items-center justify-center text-lg font-bold transition-colors hover:bg-white/5 flex-shrink-0"
+          className="w-10 h-11 flex items-center justify-center text-xl font-bold transition-colors hover:bg-white/5 flex-shrink-0"
           style={{ color: "var(--accent)" }}
           onClick={() => onChange(Math.min(max, +(value + step).toFixed(2)))}>
           +
@@ -301,16 +316,17 @@ export default function ProfilePage() {
             onChange={v => setProfile(p => ({ ...p, goal: v as UserProfile["goal"] }))}
           />
 
-          <div className="flex gap-3">
-            <button type="submit" className="btn-primary flex items-center gap-2 flex-1" disabled={saving}>
-              <Check size={15} />
-              {saving ? "Saving..." : "Save Profile"}
-            </button>
+          <div className="flex gap-3 justify-end">
             {hasProfile && (
               <button type="button" className="btn-ghost" onClick={() => setIsEditing(false)}>
                 Cancel
               </button>
             )}
+            <button type="submit" className="btn-ghost flex items-center gap-2"
+              style={{ color: "var(--accent)", borderColor: "var(--accent-dim)" }} disabled={saving}>
+              <Check size={15} />
+              {saving ? "Saving..." : "Save Profile"}
+            </button>
           </div>
         </form>
       )}

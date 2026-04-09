@@ -137,3 +137,8 @@ input::placeholder, textarea::placeholder {
 .recharts-text { fill: var(--text-muted) !important; font-family: 'DM Sans', sans-serif !important; }
 .recharts-cartesian-grid line { stroke: var(--border) !important; }
 .recharts-tooltip-wrapper { outline: none !important; }
+
+/* Hide number spinners inside stepper inputs */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
