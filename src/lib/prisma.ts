@@ -1,3 +1,4 @@
+// src/lib/prisma.ts
 import { PrismaClient } from "@prisma/client";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
 
@@ -13,8 +14,10 @@ function createPrismaClient() {
   return new PrismaClient({ adapter } as any);
 }
 
-export const prisma = globalForPrisma.prisma ?? (() => {
-  const client = createPrismaClient();
-  if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = client;
-  return client;
-})();
+// ✅ Lazy — only instantiates on first property access, not on import
+export function getPrisma(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createPrismaClient();
+  }
+  return globalForPrisma.prisma;
+}

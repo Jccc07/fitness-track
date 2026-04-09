@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
 import { startOfDay, endOfDay } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     const dateStr = searchParams.get("date");
     const date = dateStr ? new Date(dateStr) : new Date();
 
-    const activities = await prisma.activityLog.findMany({
+    const activities = await getPrisma().activityLog.findMany({
       where: {
         date: { gte: startOfDay(date), lte: endOfDay(date) },
       },
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const activity = await prisma.activityLog.create({
+    const activity = await getPrisma().activityLog.create({
       data: {
         ...body,
         date: body.date ? new Date(body.date) : new Date(),
