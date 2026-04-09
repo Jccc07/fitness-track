@@ -1,6 +1,7 @@
-// src/app/api/activities/[id]/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+
+export const dynamic = "force-dynamic";
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   try {
