@@ -1,0 +1,66 @@
+// prisma/schema.prisma
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider     = "sqlite"
+  url          = "file:./dev.db"
+  relationMode = "prisma"
+}
+
+model UserProfile {
+  id            String   @id @default("default")
+  age           Int
+  sex           String   // "male" | "female"
+  height        Float    // cm
+  weight        Float    // kg
+  activityLevel String   // "sedentary" | "moderate" | "active"
+  goal          String   // "maintain" | "deficit" | "bulk"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  weightLogs WeightLog[]
+}
+
+model WeightLog {
+  id        String      @id @default(cuid())
+  weight    Float
+  date      DateTime    @default(now())
+  profileId String      @default("default")
+  profile   UserProfile @relation(fields: [profileId], references: [id])
+}
+
+model MealLog {
+  id           String   @id @default(cuid())
+  date         DateTime @default(now())
+  mealType     String   // "breakfast" | "lunch" | "dinner" | "snack"
+  entryType    String   // "manual" | "product" | "image"
+  foodName     String
+  ingredients  String?
+  calories     Float
+  protein      Float?   // grams
+  carbs        Float?   // grams
+  fat          Float?   // grams
+  brandName    String?
+  productName  String?
+  imageUrl     String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model ActivityLog {
+  id           String   @id @default(cuid())
+  date         DateTime @default(now())
+  entryType    String   // "manual" | "screenshot"
+  activityType String   // "walk" | "run" | "gym" | "cycle" | etc.
+  duration     Float?   // minutes
+  distance     Float?   // km
+  reps         Int?
+  caloriesBurned Float
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

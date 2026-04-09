@@ -1,0 +1,25 @@
+// src/app/api/meals/[id]/route.ts
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
+export async function PUT(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const body = await req.json();
+    const meal = await prisma.mealLog.update({
+      where: { id: params.id },
+      data: body,
+    });
+    return NextResponse.json(meal);
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}
+
+export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+  try {
+    await prisma.mealLog.delete({ where: { id: params.id } });
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}
