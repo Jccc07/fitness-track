@@ -68,11 +68,21 @@ export const MET_VALUES: MetValue[] = [
 export function estimateCaloriesBurned(
   activityType: string,
   durationMinutes: number,
-  weightKg: number
+  weightKg: number,
+  reps?: number
 ): number {
   const metEntry = MET_VALUES.find((m) => m.type === activityType) ?? MET_VALUES[MET_VALUES.length - 1];
-  // Calories = MET × weight(kg) × duration(hours)
-  return Math.round(metEntry.met * weightKg * (durationMinutes / 60));
+  // Base: MET × weight(kg) × duration(hours)
+  let calories = metEntry.met * weightKg * (durationMinutes / 60);
+
+  // Reps bonus: each rep burns roughly 0.15–0.35 kcal depending on intensity
+  // We scale by MET so heavier exercises get a bigger per-rep contribution
+  if (reps && reps > 0) {
+    const repsCalPerRep = (metEntry.met / 10) * 0.3 * (weightKg / 70);
+    calories += reps * repsCalPerRep;
+  }
+
+  return Math.round(calories);
 }
 
 // ─── Daily Conclusion (rule-based) ─────────────────────────────────────────

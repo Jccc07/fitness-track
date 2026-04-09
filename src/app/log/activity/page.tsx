@@ -2,10 +2,9 @@
 // src/app/log/activity/page.tsx
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
-import { Activity, Upload, Trash2 } from "lucide-react";
+import { Activity, Upload, Trash2, Loader2 } from "lucide-react";
 import { MET_VALUES, estimateCaloriesBurned } from "@/lib/calculations";
 import type { ActivityLog } from "@/types";
-import clsx from "clsx";
 
 type EntryMode = "manual" | "screenshot";
 
@@ -16,7 +15,6 @@ export default function LogActivityPage() {
   const [userWeight, setUserWeight] = useState(70);
   const [date] = useState(format(new Date(), "yyyy-MM-dd"));
 
-  // Manual form
   const [form, setForm] = useState({
     activityType: "walk",
     duration: "",
@@ -25,15 +23,14 @@ export default function LogActivityPage() {
   });
   const [estimatedBurn, setEstimatedBurn] = useState(0);
 
-  // Screenshot
   const fileRef = useRef<HTMLInputElement>(null);
-  const [ocrText, setOcrText] = useState("");
   const [ocrParsed, setOcrParsed] = useState<{
     activityType: string;
     duration: number;
     distance: number;
     caloriesBurned: number;
   } | null>(null);
+  const [ocrRaw, setOcrRaw] = useState("");
   const [ocrLoading, setOcrLoading] = useState(false);
 
   useEffect(() => {
@@ -45,19 +42,24 @@ export default function LogActivityPage() {
     });
   }, [date]);
 
+  // Recalculate burn whenever form changes — including reps
   useEffect(() => {
-    if (form.duration) {
-      const burn = estimateCaloriesBurned(form.activityType, +form.duration, userWeight);
+    const dur = form.duration ? +form.duration : 0;
+    const rps = form.reps ? +form.reps : undefined;
+    if (dur > 0 || (rps && rps > 0)) {
+      const burn = estimateCaloriesBurned(form.activityType, dur, userWeight, rps);
       setEstimatedBurn(burn);
     } else {
       setEstimatedBurn(0);
     }
-  }, [form.activityType, form.duration, userWeight]);
+  }, [form.activityType, form.duration, form.reps, userWeight]);
 
   const handleManualSave = async () => {
     if (!form.duration && !form.reps) return;
     setSaving(true);
-    const burn = form.duration ? estimateCaloriesBurned(form.activityType, +form.duration, userWeight) : 100;
+    const dur = form.duration ? +form.duration : 0;
+    const rps = form.reps ? +form.reps : undefined;
+    const burn = estimateCaloriesBurned(form.activityType, dur, userWeight, rps);
     const res = await fetch("/api/activities", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -72,53 +74,86 @@ export default function LogActivityPage() {
       }),
     });
     const activity = await res.json();
-    setActivities(a => [...a, activity]);
+    if (!activity.error) setActivities(a => [...a, activity]);
     setForm({ activityType: "walk", duration: "", distance: "", reps: "" });
     setSaving(false);
   };
 
+  // ─── Strava / fitness app OCR parser ─────────────────────────────────────
+  // Handles formats like: "3.97 km", "57m 20s", "57:20", "Distance 3.97 km"
   const parseOCRText = (text: string) => {
-    // Simple regex parsing for common fitness app formats
-    const distMatch = text.match(/(\d+\.?\d*)\s*(km|mi|miles|kilometers)/i);
-    const durMatch = text.match(/(\d+):(\d+)|(\d+)\s*(min|minutes|hours)/i);
-    const actMatch = text.match(/\b(run|walk|cycle|swim|ride|hike)\b/i);
-
+    // Distance: "3.97 km", "3.97km", "2.46 mi"
+    const distMatch = text.match(/(\d+\.?\d*)\s*(km|mi)\b/i);
     let distKm = 0;
     if (distMatch) {
       distKm = parseFloat(distMatch[1]);
-      if (distMatch[2].toLowerCase().includes("mi")) distKm *= 1.609;
+      if (distMatch[2].toLowerCase() === "mi") distKm *= 1.60934;
     }
 
+    // Duration: "57m 20s", "57m", "1h 2m", "57:20", "1:02:30"
     let durationMin = 0;
-    if (durMatch) {
-      if (durMatch[1] && durMatch[2]) {
-        durationMin = parseInt(durMatch[1]) * 60 + parseInt(durMatch[2]);
-      } else if (durMatch[3]) {
-        durationMin = parseInt(durMatch[3]);
-        if (durMatch[4]?.toLowerCase().includes("hour")) durationMin *= 60;
-      }
+    const hmsMatch = text.match(/(\d+)h\s*(\d+)m/i);       // "1h 2m"
+    const msMatch  = text.match(/(\d+)m\s*(\d+)s/i);        // "57m 20s"
+    const colonHMS = text.match(/(\d+):(\d+):(\d+)/);        // "1:02:30"
+    const colonMS  = text.match(/(\d+):(\d+)/);              // "57:20"
+    const mOnly    = text.match(/(\d+)\s*min(?:utes?)?\b/i); // "57 minutes"
+
+    if (hmsMatch) {
+      durationMin = parseInt(hmsMatch[1]) * 60 + parseInt(hmsMatch[2]);
+    } else if (msMatch) {
+      durationMin = parseInt(msMatch[1]) + parseInt(msMatch[2]) / 60;
+    } else if (colonHMS) {
+      durationMin = parseInt(colonHMS[1]) * 60 + parseInt(colonHMS[2]) + parseInt(colonHMS[3]) / 60;
+    } else if (colonMS) {
+      durationMin = parseInt(colonMS[1]) * 60 + parseInt(colonMS[2]);
+    } else if (mOnly) {
+      durationMin = parseInt(mOnly[1]);
+    }
+    durationMin = Math.round(durationMin);
+
+    // Activity type detection
+    const activityMap: Record<string, string> = {
+      run: "run", running: "run",
+      walk: "walk", walking: "walk", hike: "walk", hiking: "walk",
+      ride: "cycle", cycling: "cycle", cycle: "cycle", bike: "cycle",
+      swim: "swim", swimming: "swim",
+      "weight": "gym", gym: "gym",
+    };
+    let activityType = "walk"; // default for Strava walking/running
+    for (const [keyword, type] of Object.entries(activityMap)) {
+      if (text.toLowerCase().includes(keyword)) { activityType = type; break; }
     }
 
-    const activityMap: Record<string, string> = {
-      run: "run", walk: "walk", cycle: "cycle", ride: "cycle", swim: "swim", hike: "walk"
-    };
-    const activityType = actMatch ? (activityMap[actMatch[1].toLowerCase()] || "other") : "other";
-    const burn = durationMin ? estimateCaloriesBurned(activityType, durationMin, userWeight) : 200;
+    // Calories directly stated in image (e.g. "Calories: 312")
+    const calMatch = text.match(/calori[eo]s?\s*[:\-]?\s*(\d+)/i);
+    const statedCal = calMatch ? parseInt(calMatch[1]) : 0;
 
-    return { activityType, duration: durationMin, distance: distKm, caloriesBurned: burn };
+    const burn = statedCal > 0
+      ? statedCal
+      : durationMin > 0
+        ? estimateCaloriesBurned(activityType, durationMin, userWeight)
+        : 200;
+
+    return { activityType, duration: durationMin, distance: parseFloat(distKm.toFixed(2)), caloriesBurned: burn };
   };
 
   const handleScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setOcrLoading(true);
-
-    // Dynamic import to avoid SSR issues
-    const Tesseract = (await import("tesseract.js")).default;
-    const { data: { text } } = await Tesseract.recognize(file, "eng");
-    setOcrText(text);
-    const parsed = parseOCRText(text);
-    setOcrParsed(parsed);
+    setOcrParsed(null);
+    setOcrRaw("");
+    try {
+      const Tesseract = (await import("tesseract.js")).default;
+      const { data: { text } } = await Tesseract.recognize(file, "eng", {
+        logger: () => {},
+      });
+      setOcrRaw(text);
+      const parsed = parseOCRText(text);
+      setOcrParsed(parsed);
+    } catch (err) {
+      console.error("OCR error:", err);
+    }
     setOcrLoading(false);
   };
 
@@ -131,14 +166,14 @@ export default function LogActivityPage() {
       body: JSON.stringify({
         entryType: "screenshot",
         ...ocrParsed,
-        notes: `Parsed from screenshot`,
+        notes: "Parsed from screenshot",
         date,
       }),
     });
     const activity = await res.json();
-    setActivities(a => [...a, activity]);
+    if (!activity.error) setActivities(a => [...a, activity]);
     setOcrParsed(null);
-    setOcrText("");
+    setOcrRaw("");
     setSaving(false);
   };
 
@@ -172,7 +207,7 @@ export default function LogActivityPage() {
           ))}
         </div>
 
-        {/* Manual Entry */}
+        {/* Manual */}
         {mode === "manual" && (
           <div className="space-y-3">
             <div>
@@ -186,31 +221,43 @@ export default function LogActivityPage() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>Duration (min)</label>
-                <input type="number" placeholder="30" value={form.duration}
+                <input type="number" placeholder="30" min="0" value={form.duration}
                   onChange={e => setForm(f => ({ ...f, duration: e.target.value }))} />
               </div>
               <div>
                 <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>Distance (km)</label>
-                <input type="number" placeholder="5" step={0.1} value={form.distance}
+                <input type="number" placeholder="5" step={0.1} min="0" value={form.distance}
                   onChange={e => setForm(f => ({ ...f, distance: e.target.value }))} />
               </div>
               <div>
-                <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>Reps</label>
-                <input type="number" placeholder="100" value={form.reps}
+                <label className="text-xs mb-1 block" style={{ color: "var(--text-muted)" }}>
+                  Reps
+                  <span className="ml-1" style={{ color: "var(--text-dim)" }}>(adds to burn)</span>
+                </label>
+                <input type="number" placeholder="0" min="0" value={form.reps}
                   onChange={e => setForm(f => ({ ...f, reps: e.target.value }))} />
               </div>
             </div>
+
             {estimatedBurn > 0 && (
-              <div className="rounded-xl p-3 flex items-center gap-2" style={{ background: "var(--accent-glow)", border: "1px solid var(--accent-dim)" }}>
-                <span className="text-2xl font-bold" style={{ color: "var(--accent)", fontFamily: "Syne" }}>
-                  ~{estimatedBurn}
-                </span>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  <div>estimated kcal burned</div>
-                  <div>using MET formula · {userWeight}kg bodyweight</div>
+              <div className="rounded-xl p-3 flex items-center justify-between"
+                style={{ background: "var(--accent-glow)", border: "1px solid var(--accent-dim)" }}>
+                <div>
+                  <div className="text-2xl font-bold" style={{ color: "var(--accent)", fontFamily: "Syne" }}>
+                    ~{estimatedBurn} kcal
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                    MET formula · {userWeight}kg bodyweight
+                    {form.reps ? ` · ${form.reps} reps` : ""}
+                  </div>
+                </div>
+                <div className="text-xs text-right" style={{ color: "var(--text-dim)" }}>
+                  <div>Duration: {form.duration || 0} min</div>
+                  {form.distance && <div>Distance: {form.distance} km</div>}
                 </div>
               </div>
             )}
+
             <button className="btn-primary w-full" onClick={handleManualSave}
               disabled={saving || (!form.duration && !form.reps)}>
               {saving ? "Saving..." : "Log Activity"}
@@ -221,49 +268,62 @@ export default function LogActivityPage() {
         {/* Screenshot OCR */}
         {mode === "screenshot" && (
           <div className="space-y-3">
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Upload a screenshot from Strava, Garmin, Nike Run, or any fitness app.
+            </p>
             <div
               onClick={() => fileRef.current?.click()}
               className="border-2 border-dashed rounded-xl flex flex-col items-center justify-center py-8 cursor-pointer transition-colors hover:border-green-500"
               style={{ borderColor: "var(--border)" }}>
               {ocrLoading ? (
                 <div className="flex flex-col items-center gap-2">
-                  <div className="w-6 h-6 border-2 rounded-full animate-spin"
-                    style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} />
+                  <Loader2 size={24} className="animate-spin" style={{ color: "var(--accent)" }} />
                   <p className="text-xs" style={{ color: "var(--text-muted)" }}>Reading screenshot...</p>
                 </div>
               ) : (
                 <>
                   <Upload size={28} style={{ color: "var(--text-dim)" }} />
-                  <p className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>Upload Strava / Garmin screenshot</p>
-                  <p className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>We'll extract distance, duration & activity</p>
+                  <p className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>
+                    Upload Strava / Garmin / Nike Run screenshot
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
+                    Reads distance, time, and activity type
+                  </p>
                 </>
               )}
             </div>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleScreenshot} />
 
             {ocrParsed && (
-              <div className="rounded-xl p-3 space-y-3" style={{ background: "var(--bg-card2)", border: "1px solid var(--accent-dim)" }}>
-                <div className="text-sm font-medium" style={{ color: "var(--accent)" }}>Parsed from screenshot:</div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-xl p-3 space-y-3"
+                style={{ background: "var(--bg-card2)", border: "1px solid var(--accent-dim)" }}>
+                <div className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+                  Parsed from screenshot — edit if needed:
+                </div>
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-xs block" style={{ color: "var(--text-muted)" }}>Activity</label>
+                    <label className="text-xs block mb-1" style={{ color: "var(--text-muted)" }}>Activity</label>
                     <select value={ocrParsed.activityType}
                       onChange={e => setOcrParsed(p => p ? { ...p, activityType: e.target.value } : p)}>
                       {MET_VALUES.map(m => <option key={m.type} value={m.type}>{m.label}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs block" style={{ color: "var(--text-muted)" }}>Duration (min)</label>
+                    <label className="text-xs block mb-1" style={{ color: "var(--text-muted)" }}>Duration (min)</label>
                     <input type="number" value={ocrParsed.duration}
-                      onChange={e => setOcrParsed(p => p ? { ...p, duration: +e.target.value } : p)} />
+                      onChange={e => setOcrParsed(p => p ? {
+                        ...p,
+                        duration: +e.target.value,
+                        caloriesBurned: estimateCaloriesBurned(p.activityType, +e.target.value, userWeight),
+                      } : p)} />
                   </div>
                   <div>
-                    <label className="text-xs block" style={{ color: "var(--text-muted)" }}>Distance (km)</label>
-                    <input type="number" step={0.1} value={ocrParsed.distance}
+                    <label className="text-xs block mb-1" style={{ color: "var(--text-muted)" }}>Distance (km)</label>
+                    <input type="number" step={0.01} value={ocrParsed.distance}
                       onChange={e => setOcrParsed(p => p ? { ...p, distance: +e.target.value } : p)} />
                   </div>
                   <div>
-                    <label className="text-xs block" style={{ color: "var(--text-muted)" }}>Calories burned</label>
+                    <label className="text-xs block mb-1" style={{ color: "var(--text-muted)" }}>Calories burned</label>
                     <input type="number" value={ocrParsed.caloriesBurned}
                       onChange={e => setOcrParsed(p => p ? { ...p, caloriesBurned: +e.target.value } : p)} />
                   </div>
@@ -274,10 +334,11 @@ export default function LogActivityPage() {
               </div>
             )}
 
-            {ocrText && !ocrParsed && (
-              <div className="text-xs p-2 rounded" style={{ background: "var(--bg-card2)", color: "var(--text-muted)" }}>
-                <div className="mb-1 font-medium">OCR extracted text:</div>
-                <pre className="whitespace-pre-wrap font-mono text-xs">{ocrText.slice(0, 300)}</pre>
+            {/* Show raw OCR text for debugging */}
+            {ocrRaw && !ocrParsed && (
+              <div className="text-xs p-3 rounded-xl" style={{ background: "var(--bg-card2)", color: "var(--text-muted)" }}>
+                <div className="font-medium mb-1">Couldn't parse automatically — raw text:</div>
+                <pre className="whitespace-pre-wrap font-mono text-xs">{ocrRaw.slice(0, 400)}</pre>
               </div>
             )}
           </div>
@@ -300,7 +361,9 @@ export default function LogActivityPage() {
               <div key={a.id} className="flex items-center justify-between text-sm py-2 border-b group"
                 style={{ borderColor: "var(--border)" }}>
                 <div>
-                  <div className="font-medium capitalize">{a.activityType}</div>
+                  <div className="font-medium capitalize">
+                    {MET_VALUES.find(m => m.type === a.activityType)?.label || a.activityType}
+                  </div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>
                     {a.duration ? `${a.duration} min` : ""}
                     {a.distance ? ` · ${a.distance} km` : ""}
