@@ -1,6 +1,5 @@
 // src/lib/prisma.ts
 import { PrismaClient } from "@prisma/client";
-import { PrismaLibSql } from "@prisma/adapter-libsql";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
@@ -10,6 +9,8 @@ function createPrismaClient() {
 
   if (!url) throw new Error("TURSO_DATABASE_URL is not set");
 
+  // Dynamically require to avoid module-level instantiation
+  const { PrismaLibSql } = require("@prisma/adapter-libsql");
   const adapter = new PrismaLibSql({ url, authToken });
   return new PrismaClient({ adapter } as any);
 }
@@ -21,7 +22,6 @@ export function getPrisma(): PrismaClient {
   return globalForPrisma.prisma;
 }
 
-// ✅ Keeps all existing imports working (import { prisma } from '@/lib/prisma')
 export const prisma = new Proxy({} as PrismaClient, {
   get(_, prop) {
     return getPrisma()[prop as keyof PrismaClient];
