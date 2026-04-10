@@ -59,7 +59,7 @@ Protein, carbs, fat are in grams. Use realistic Filipino home-cooked or fast foo
       const errBody = await response.text();
       console.error("OpenRouter API error:", response.status, errBody);
       return NextResponse.json(
-        { error: `OpenRouter API returned ${response.status}. Try again in a moment.` },
+        { error: errBody },
         { status: 502 }
       );
     }
