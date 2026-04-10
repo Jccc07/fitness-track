@@ -11,14 +11,18 @@ interface FoodItem {
   fat: number;
 }
 
-interface AnalysisResult {
-  items: FoodItem[];
-  note: string;
-}
-
 export async function POST(req: Request) {
   const authResult = await requireUserId();
   if (authResult instanceof NextResponse) return authResult;
+
+  // Check API key up front — gives a clear error instead of a cryptic 401
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "ANTHROPIC_API_KEY is not set. Add it to your .env.local file and restart the server." },
+      { status: 500 }
+    );
+  }
 
   try {
     const body = await req.json();
@@ -26,7 +30,7 @@ export async function POST(req: Request) {
 
     if (!imageBase64 && !description) {
       return NextResponse.json(
-        { error: "Provide an image or a text description." },
+        { error: "Provide an image or a text description of the meal." },
         { status: 400 }
       );
     }
@@ -36,11 +40,10 @@ export async function POST(req: Request) {
 Analyze ${imageBase64 ? "this food image" : "this food description"} and identify ALL food items present.
 ${description ? `Additional context from user: "${description}"` : ""}
 
-For each food item identified, provide a detailed nutrition estimate.
-Be especially accurate with Filipino dishes like adobo, sinigang, kare-kare, lechon, pancit, rice, etc.
-Also recognize Philippine fast food: Jollibee, Chowking, Mang Inasal, Greenwich, McDonald's PH.
+Be especially accurate with Filipino dishes: adobo, sinigang, kare-kare, lechon, pancit, rice, etc.
+Also recognize Philippine fast food: Jollibee, Chowking, Mang Inasal, Greenwich, McDonald's PH, KFC PH.
 
-Respond ONLY with a valid JSON object in this exact format (no markdown, no explanation):
+Respond ONLY with a valid JSON object — no markdown, no explanation:
 {
   "items": [
     {
@@ -52,17 +55,15 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no expl
       "fat": 10
     }
   ],
-  "note": "Brief note about confidence level or any assumptions made"
+  "note": "brief note about confidence or assumptions"
 }
 
-Important rules:
-- Identify EVERY visible food item separately (rice, viand, drink, side dishes, etc.)
+Rules:
+- List EVERY visible food item separately (rice, viand, drink, side dishes, etc.)
 - Use realistic Filipino/Asian portion sizes
-- If multiple servings are visible, estimate accordingly
 - For combo meals (e.g. Jollibee meal), list each component separately
-- Protein, carbs, fat values are in grams`;
+- Protein, carbs, fat are in grams`;
 
-    // Build message content array
     type ContentBlock =
       | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
       | { type: "text"; text: string };
@@ -81,26 +82,31 @@ Important rules:
     }
     messageContent.push({ type: "text", text: prompt });
 
-    // claude-sonnet-4-6 supports vision and is the correct current model string
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
+        "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: "claude-sonnet-4-6",  // Sonnet 4.6 — supports vision, fast and accurate
         max_tokens: 1024,
         messages: [{ role: "user", content: messageContent }],
       }),
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      console.error("Claude Vision API error:", response.status, errText);
+      const errBody = await response.text();
+      console.error("Anthropic Vision API error:", response.status, errBody);
+      if (response.status === 401) {
+        return NextResponse.json(
+          { error: "Invalid API key. Check your ANTHROPIC_API_KEY in .env.local." },
+          { status: 500 }
+        );
+      }
       return NextResponse.json(
-        { error: `AI service error (${response.status}). Check your API key and try again.` },
+        { error: `Anthropic API returned ${response.status}. Try again in a moment.` },
         { status: 502 }
       );
     }
@@ -108,7 +114,7 @@ Important rules:
     const claudeData = await response.json();
 
     if (claudeData.error) {
-      console.error("Claude error body:", claudeData.error);
+      console.error("Anthropic error body:", claudeData.error);
       return NextResponse.json(
         { error: claudeData.error.message ?? "AI image analysis failed." },
         { status: 502 }
@@ -118,7 +124,7 @@ Important rules:
     const rawText = claudeData.content?.[0]?.text ?? "{}";
     const cleaned = rawText.replace(/```json|```/g, "").trim();
 
-    let parsed: AnalysisResult;
+    let parsed: { items: FoodItem[]; note?: string };
     try {
       parsed = JSON.parse(cleaned);
     } catch {
@@ -130,23 +136,19 @@ Important rules:
     }
 
     const items: FoodItem[] = parsed.items ?? [];
-    const totalCalories = items.reduce((s, i) => s + (i.calories ?? 0), 0);
-    const totalProtein  = items.reduce((s, i) => s + (i.protein  ?? 0), 0);
-    const totalCarbs    = items.reduce((s, i) => s + (i.carbs    ?? 0), 0);
-    const totalFat      = items.reduce((s, i) => s + (i.fat      ?? 0), 0);
 
     return NextResponse.json({
       items,
-      totalCalories,
-      totalProtein:  Math.round(totalProtein),
-      totalCarbs:    Math.round(totalCarbs),
-      totalFat:      Math.round(totalFat),
+      totalCalories: items.reduce((s, i) => s + (i.calories ?? 0), 0),
+      totalProtein:  Math.round(items.reduce((s, i) => s + (i.protein  ?? 0), 0)),
+      totalCarbs:    Math.round(items.reduce((s, i) => s + (i.carbs    ?? 0), 0)),
+      totalFat:      Math.round(items.reduce((s, i) => s + (i.fat      ?? 0), 0)),
       note: parsed.note ?? "AI estimate — please adjust if needed",
     });
   } catch (e) {
     console.error("Image analysis error:", e);
     return NextResponse.json(
-      { error: "Failed to analyze image. Please try again or describe the food manually." },
+      { error: "Failed to analyze. Please try again or describe the food manually." },
       { status: 500 }
     );
   }

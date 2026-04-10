@@ -2,18 +2,18 @@
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/session";
 
-interface FoodEstimate {
-  name: string;
-  portion: string;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-}
-
 export async function POST(req: Request) {
   const authResult = await requireUserId();
   if (authResult instanceof NextResponse) return authResult;
+
+  // Check API key up front — gives a clear error instead of a cryptic 401
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "ANTHROPIC_API_KEY is not set. Add it to your .env.local file and restart the server." },
+      { status: 500 }
+    );
+  }
 
   try {
     const { foodName, ingredients, portion } = await req.json();
@@ -25,31 +25,29 @@ Estimate the nutritional content for: "${foodName}"
 ${ingredients ? `Ingredients/description: ${ingredients}` : ""}
 ${portion ? `Portion/serving size: ${portion}` : "Assume a standard single serving"}
 
-This could be a Filipino dish (e.g. adobo, sinigang, kare-kare, lechon, tinola, nilaga, pinakbet, 
-bistek, menudo, caldereta, mechado, afritada, pork chop, bangus, tilapia, tocino, longganisa, 
-tapa, champorado, lugaw, goto, bulalo, mami, palabok, pancit, rice dishes, etc.)
+This could be a Filipino dish (adobo, sinigang, kare-kare, lechon, tinola, nilaga, pinakbet,
+bistek, menudo, caldereta, mechado, afritada, bangus, tilapia, tocino, longganisa,
+tapa, champorado, lugaw, goto, bulalo, palabok, pancit, rice dishes, etc.)
 or fast food (Jollibee, McDonald's PH, Chowking, Mang Inasal, KFC PH, Greenwich, etc.)
 or any international food.
 
-Respond ONLY with a valid JSON object (no markdown, no explanation):
+Respond ONLY with a valid JSON object — no markdown, no explanation:
 {
   "name": "Standardized English name",
   "portion": "portion description",
   "calories": 350,
   "protein": 25,
   "carbs": 30,
-  "fat": 12,
-  "confidence": "high|medium|low",
-  "note": "brief note if any"
+  "fat": 12
 }
 
-Protein, carbs, fat are in grams. Be realistic — typical Filipino home-cooked or fast food serving sizes.`;
+Protein, carbs, fat are in grams. Use realistic Filipino home-cooked or fast food serving sizes.`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
+        "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
@@ -60,19 +58,24 @@ Protein, carbs, fat are in grams. Be realistic — typical Filipino home-cooked 
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      console.error("Claude API error:", response.status, errText);
+      const errBody = await response.text();
+      console.error("Anthropic API error:", response.status, errBody);
+      if (response.status === 401) {
+        return NextResponse.json(
+          { error: "Invalid API key. Check your ANTHROPIC_API_KEY in .env.local." },
+          { status: 500 }
+        );
+      }
       return NextResponse.json(
-        { error: `AI service error (${response.status}). Check your API key and try again.` },
+        { error: `Anthropic API returned ${response.status}. Try again in a moment.` },
         { status: 502 }
       );
     }
 
     const data = await response.json();
 
-    // Check for API-level errors returned in the body
     if (data.error) {
-      console.error("Claude error body:", data.error);
+      console.error("Anthropic error body:", data.error);
       return NextResponse.json(
         { error: data.error.message ?? "AI estimation failed." },
         { status: 502 }
@@ -81,22 +84,20 @@ Protein, carbs, fat are in grams. Be realistic — typical Filipino home-cooked 
 
     const raw = (data.content?.[0]?.text ?? "{}").replace(/```json|```/g, "").trim();
 
-    let estimate: FoodEstimate & { confidence?: string; note?: string };
     try {
-      estimate = JSON.parse(raw);
+      const estimate = JSON.parse(raw);
+      return NextResponse.json(estimate);
     } catch {
       console.error("Failed to parse Claude response:", raw);
       return NextResponse.json(
-        { error: "Could not parse nutrition estimate. Try adding more detail." },
+        { error: "Could not parse AI response. Try adding more detail to the food name." },
         { status: 500 }
       );
     }
-
-    return NextResponse.json(estimate);
   } catch (e) {
     console.error("Food estimate error:", e);
     return NextResponse.json(
-      { error: "Could not estimate nutrition. Try adding more detail." },
+      { error: "Could not estimate nutrition. Check your connection and try again." },
       { status: 500 }
     );
   }
