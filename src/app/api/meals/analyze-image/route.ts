@@ -1,4 +1,3 @@
-// src/app/api/meals/analyze-image/route.ts
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/session";
 
@@ -15,11 +14,10 @@ export async function POST(req: Request) {
   const authResult = await requireUserId();
   if (authResult instanceof NextResponse) return authResult;
 
-  // Check API key up front — gives a clear error instead of a cryptic 401
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not set. Add it to your .env.local file and restart the server." },
+      { error: "GEMINI_API_KEY is not set. Add it to your .env.local file and restart the server." },
       { status: 500 }
     );
   }
@@ -64,71 +62,53 @@ Rules:
 - For combo meals (e.g. Jollibee meal), list each component separately
 - Protein, carbs, fat are in grams`;
 
-    type ContentBlock =
-      | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
-      | { type: "text"; text: string };
+    type Part =
+      | { text: string }
+      | { inlineData: { mimeType: string; data: string } };
 
-    const messageContent: ContentBlock[] = [];
+    const parts: Part[] = [];
 
     if (imageBase64) {
-      messageContent.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: mimeType ?? "image/jpeg",
+      parts.push({
+        inlineData: {
+          mimeType: mimeType ?? "image/jpeg",
           data: imageBase64,
         },
       });
     }
-    messageContent.push({ type: "text", text: prompt });
+    parts.push({ text: prompt });
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",  // Sonnet 4.6 — supports vision, fast and accurate
-        max_tokens: 1024,
-        messages: [{ role: "user", content: messageContent }],
-      }),
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { maxOutputTokens: 1024 },
+        }),
+      }
+    );
 
     if (!response.ok) {
       const errBody = await response.text();
-      console.error("Anthropic Vision API error:", response.status, errBody);
-      if (response.status === 401) {
-        return NextResponse.json(
-          { error: "Invalid API key. Check your ANTHROPIC_API_KEY in .env.local." },
-          { status: 500 }
-        );
-      }
+      console.error("Gemini Vision API error:", response.status, errBody);
       return NextResponse.json(
-        { error: `Anthropic API returned ${response.status}. Try again in a moment.` },
+        { error: `Gemini API returned ${response.status}. Try again in a moment.` },
         { status: 502 }
       );
     }
 
-    const claudeData = await response.json();
-
-    if (claudeData.error) {
-      console.error("Anthropic error body:", claudeData.error);
-      return NextResponse.json(
-        { error: claudeData.error.message ?? "AI image analysis failed." },
-        { status: 502 }
-      );
-    }
-
-    const rawText = claudeData.content?.[0]?.text ?? "{}";
-    const cleaned = rawText.replace(/```json|```/g, "").trim();
+    const geminiData = await response.json();
+    const rawText = (geminiData.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}")
+      .replace(/```json|```/g, "")
+      .trim();
 
     let parsed: { items: FoodItem[]; note?: string };
     try {
-      parsed = JSON.parse(cleaned);
+      parsed = JSON.parse(rawText);
     } catch {
-      console.error("Failed to parse Claude vision response:", cleaned);
+      console.error("Failed to parse Gemini vision response:", rawText);
       return NextResponse.json(
         { error: "Could not parse AI response. Please try again." },
         { status: 500 }

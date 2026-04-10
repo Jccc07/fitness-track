@@ -1,4 +1,3 @@
-// src/app/api/meals/estimate/route.ts
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/session";
 
@@ -6,11 +5,10 @@ export async function POST(req: Request) {
   const authResult = await requireUserId();
   if (authResult instanceof NextResponse) return authResult;
 
-  // Check API key up front — gives a clear error instead of a cryptic 401
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not set. Add it to your .env.local file and restart the server." },
+      { error: "GEMINI_API_KEY is not set. Add it to your .env.local file and restart the server." },
       { status: 500 }
     );
   }
@@ -43,52 +41,37 @@ Respond ONLY with a valid JSON object — no markdown, no explanation:
 
 Protein, carbs, fat are in grams. Use realistic Filipino home-cooked or fast food serving sizes.`;
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5",
-        max_tokens: 300,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 300 },
+        }),
+      }
+    );
 
     if (!response.ok) {
       const errBody = await response.text();
-      console.error("Anthropic API error:", response.status, errBody);
-      if (response.status === 401) {
-        return NextResponse.json(
-          { error: "Invalid API key. Check your ANTHROPIC_API_KEY in .env.local." },
-          { status: 500 }
-        );
-      }
+      console.error("Gemini API error:", response.status, errBody);
       return NextResponse.json(
-        { error: errBody },
+        { error: `Gemini API returned ${response.status}. Try again in a moment.` },
         { status: 502 }
       );
     }
 
     const data = await response.json();
-
-    if (data.error) {
-      console.error("Anthropic error body:", data.error);
-      return NextResponse.json(
-        { error: data.error.message ?? "AI estimation failed." },
-        { status: 502 }
-      );
-    }
-
-    const raw = (data.content?.[0]?.text ?? "{}").replace(/```json|```/g, "").trim();
+    const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}")
+      .replace(/```json|```/g, "")
+      .trim();
 
     try {
       const estimate = JSON.parse(raw);
       return NextResponse.json(estimate);
     } catch {
-      console.error("Failed to parse Claude response:", raw);
+      console.error("Failed to parse Gemini response:", raw);
       return NextResponse.json(
         { error: "Could not parse AI response. Try adding more detail to the food name." },
         { status: 500 }
