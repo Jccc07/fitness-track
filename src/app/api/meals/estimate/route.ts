@@ -67,7 +67,7 @@ Protein, carbs, fat are in grams. Use realistic Filipino home-cooked or fast foo
         );
       }
       return NextResponse.json(
-        { error: `Anthropic API returned ${response.status}. Try again in a moment.` },
+        { error: errBody },
         { status: 502 }
       );
     }
