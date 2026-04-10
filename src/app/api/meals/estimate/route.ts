@@ -5,10 +5,10 @@ export async function POST(req: Request) {
   const authResult = await requireUserId();
   if (authResult instanceof NextResponse) return authResult;
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { error: "GEMINI_API_KEY is not set. Add it to your .env.local file and restart the server." },
+      { error: "OPENROUTER_API_KEY is not set. Add it to your .env.local file and restart the server." },
       { status: 500 }
     );
   }
@@ -41,29 +41,31 @@ Respond ONLY with a valid JSON object — no markdown, no explanation:
 
 Protein, carbs, fat are in grams. Use realistic Filipino home-cooked or fast food serving sizes.`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 300 },
-        }),
-      }
-    );
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-3.3-70b-instruct:free",
+        max_tokens: 300,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
 
     if (!response.ok) {
       const errBody = await response.text();
-      console.error("Gemini API error:", response.status, errBody);
+      console.error("OpenRouter API error:", response.status, errBody);
       return NextResponse.json(
-        { error: errBody },
+        { error: `OpenRouter API returned ${response.status}. Try again in a moment.` },
         { status: 502 }
       );
     }
 
     const data = await response.json();
-    const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}")
+    const raw = (data.choices?.[0]?.message?.content ?? "{}")
       .replace(/```json|```/g, "")
       .trim();
 
@@ -71,7 +73,7 @@ Protein, carbs, fat are in grams. Use realistic Filipino home-cooked or fast foo
       const estimate = JSON.parse(raw);
       return NextResponse.json(estimate);
     } catch {
-      console.error("Failed to parse Gemini response:", raw);
+      console.error("Failed to parse OpenRouter response:", raw);
       return NextResponse.json(
         { error: "Could not parse AI response. Try adding more detail to the food name." },
         { status: 500 }

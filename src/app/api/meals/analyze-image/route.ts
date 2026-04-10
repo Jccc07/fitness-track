@@ -14,10 +14,10 @@ export async function POST(req: Request) {
   const authResult = await requireUserId();
   if (authResult instanceof NextResponse) return authResult;
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { error: "GEMINI_API_KEY is not set. Add it to your .env.local file and restart the server." },
+      { error: "OPENROUTER_API_KEY is not set. Add it to your .env.local file and restart the server." },
       { status: 500 }
     );
   }
@@ -62,45 +62,47 @@ Rules:
 - For combo meals (e.g. Jollibee meal), list each component separately
 - Protein, carbs, fat are in grams`;
 
-    type Part =
-      | { text: string }
-      | { inlineData: { mimeType: string; data: string } };
+    type ContentPart =
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } };
 
-    const parts: Part[] = [];
+    const contentParts: ContentPart[] = [];
 
     if (imageBase64) {
-      parts.push({
-        inlineData: {
-          mimeType: mimeType ?? "image/jpeg",
-          data: imageBase64,
+      contentParts.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${mimeType ?? "image/jpeg"};base64,${imageBase64}`,
         },
       });
     }
-    parts.push({ text: prompt });
+    contentParts.push({ type: "text", text: prompt });
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: { maxOutputTokens: 1024 },
-        }),
-      }
-    );
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-4-scout:free", // free vision-capable model
+        max_tokens: 1024,
+        messages: [{ role: "user", content: contentParts }],
+      }),
+    });
 
     if (!response.ok) {
       const errBody = await response.text();
-      console.error("Gemini Vision API error:", response.status, errBody);
+      console.error("OpenRouter Vision API error:", response.status, errBody);
       return NextResponse.json(
-        { error: `Gemini API returned ${response.status}. Try again in a moment.` },
+        { error: `OpenRouter API returned ${response.status}. Try again in a moment.` },
         { status: 502 }
       );
     }
 
-    const geminiData = await response.json();
-    const rawText = (geminiData.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}")
+    const orData = await response.json();
+    const rawText = (orData.choices?.[0]?.message?.content ?? "{}")
       .replace(/```json|```/g, "")
       .trim();
 
@@ -108,7 +110,7 @@ Rules:
     try {
       parsed = JSON.parse(rawText);
     } catch {
-      console.error("Failed to parse Gemini vision response:", rawText);
+      console.error("Failed to parse OpenRouter vision response:", rawText);
       return NextResponse.json(
         { error: "Could not parse AI response. Please try again." },
         { status: 500 }
