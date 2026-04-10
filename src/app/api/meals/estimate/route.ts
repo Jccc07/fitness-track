@@ -51,7 +51,7 @@ Protein, carbs, fat are in grams. Use realistic Filipino home-cooked or fast foo
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: "claude-haiku-4-5",
         max_tokens: 300,
         messages: [{ role: "user", content: prompt }],
       }),
